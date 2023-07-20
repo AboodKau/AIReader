@@ -1,0 +1,79 @@
+# Import the necessary modules
+import cv2 # for image processing
+import pytesseract # for optical character recognition (OCR)
+import PyPDF2 # for PDF manipulation
+import os # for file handling
+import tkinter as tk # for GUI
+from tkinter import filedialog # for file dialog
+
+# Create a root window
+root = tk.Tk()
+
+# Create a label to display instructions
+label = tk.Label(root, text="Please upload your image file")
+label.pack()
+
+# Create a function to handle the file selection
+def select_file():
+    # Ask the user to choose an image file
+    file_name = filedialog.askopenfilename(filetypes=[("Image files", "*.jpg *.png")])
+    print(file_name)
+
+    # If a file is selected
+    if file_name:
+
+        # Read the image file
+        image = cv2.imread(file_name)
+
+        # Convert the image to grayscale
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # Apply some thresholding to enhance the text
+        thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+
+        # Detect the text and images from the image using pytesseract
+        data = pytesseract.image_to_data(thresh, output_type=pytesseract.Output.DICT)
+
+        # Create a new PDF file
+        pdf = PyPDF2.PdfFileWriter()
+
+        # Loop through the detected data
+        for i in range(len(data["text"])):
+
+            # If the confidence is high enough
+            if int(data["conf"][i]) > 80:
+
+                # Get the coordinates of the text or image
+                x = data["left"][i]
+                y = data["top"][i]
+                w = data["width"][i]
+                h = data["height"][i]
+
+                # Crop the image according to the coordinates
+                cropped = image[y:y+h, x:x+w]
+
+                # Save the cropped image as a temporary file
+                cv2.imwrite("temp.jpg", cropped)
+
+                # Create a new PDF page from the cropped image
+                page = PyPDF2.PdfFileReader("temp.jpg").getPage(0)
+
+                # Add the page to the PDF file
+                pdf.addPage(page)
+
+                # Delete the temporary file
+                os.remove("temp.jpg")
+
+        # Save the PDF file as output.pdf
+        with open("output.pdf", "wb") as f:
+            pdf.write(f)
+
+        # Download the PDF file to the computer
+        os.system("start output.pdf")
+
+# Create a button to trigger the file selection function
+button = tk.Button(root, text="Upload", command=select_file)
+button.pack()
+
+# Start the main loop of the window
+root.mainloop()
