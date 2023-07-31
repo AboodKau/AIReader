@@ -1,0 +1,118 @@
+import os
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tkinter.ttk import *
+from pdfminer.high_level import extract_text
+import pyodbc
+
+# Create a root window
+root = tk.Tk()
+
+# Create labels and entry widgets for the name and work ID number fields
+name_label = tk.Label(root, text="Name")
+name_label.grid(row=0, column=0, sticky="w")
+name_entry = tk.Entry(root)
+name_entry.grid(row=1, column=0, sticky="ew")
+
+work_id_label = tk.Label(root, text="Work ID Number")
+work_id_label.grid(row=2, column=0, sticky="w")
+work_id_entry = tk.Entry(root)
+work_id_entry.grid(row=3, column=0, sticky="ew")
+
+# Create a label to display instructions
+instructions_label = tk.Label(root, text="Please upload your PDF file")
+instructions_label.grid(row=4, column=0, sticky="w")
+
+# Create a Text widget to display the extracted text
+text_widget = tk.Text(root, height=20, width=50, wrap="word", font=("Calibri", 12))
+text_widget.grid(row=5, column=0, sticky="nsew")
+
+# Create a variable to store the name and work ID number
+name_var = tk.StringVar()
+work_id_var = tk.StringVar()
+
+# Disable the Upload button initially
+upload_button = tk.Button(root, text="Upload", state="disabled")
+
+# Define a function to extract text from a PDF file and upload the data to the database
+def process_pdf_text(name, work_id, text):
+    # Extract the first line of the text and store it in a separate variable
+    title = text.split("\n")[0]
+
+    # Truncate the text to the maximum length allowed by the Text column
+    max_text_length = 200000
+    if len(text) > max_text_length:
+        text = text[:max_text_length]
+
+    # Insert the extracted text into the Text widget
+    text_widget.insert(tk.END, text)
+
+    # Insert the name, work ID number, title, and extracted text into SQL Server
+    # Define the connection string
+    conn_str = "DRIVER={SQL Server};SERVER=REAL3AZEF;DATABASE=AIFormReader;Trusted_Connection=yes;STRINGIZE_MAXSIZE=0"
+
+    try:
+        # Open the connection
+        with pyodbc.connect(conn_str) as conn:
+            # Define the SQL query
+            sql = 'INSERT INTO Forms___ (Name, ID, Title, Text) VALUES (?, ?, ?, ?)'
+
+            # Execute the query with the name, work ID number, title, and extracted text as parameters
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (name, work_id, title, text))
+                conn.commit()
+
+        # Display a success message
+        messagebox.showinfo("Success", "Data uploaded successfully")
+
+    except pyodbc.Error as e:
+        # Handle database errors
+        messagebox.showerror("Database Error", str(e))
+
+# Define a function to handle file selection
+def select_file():
+    # Ask the user to choose a file
+    file_name = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
+
+    # If a file is selected
+    if file_name:
+        # Extract text from PDF using pdfminer
+        extracted_text = extract_text(file_name)
+
+        # Display the extracted text in the Text widget
+        text_widget.delete("1.0", tk.END)
+        text_widget.insert(tk.END, extracted_text)
+
+        # Enable the Upload button
+        upload_button.configure(state="normal")
+
+        # Get the name and work ID number from the Entry widgets
+        name = name_entry.get()
+        work_id = work_id_entry.get()
+
+        # Validate the name and work ID number
+        if not name:
+            messagebox.showerror("Error", "Please enter a name")
+            return
+
+        if not work_id:
+            messagebox.showerror("Error", "Please enter a work ID number")
+            return
+
+        # Call the process_pdf_text function with the name, work ID number, and extracted text as arguments
+        process_pdf_text(name, work_id, extracted_text)
+
+# Create a button to trigger the file selection function
+choose_file_button = tk.Button(root, text="Choose File", command=select_file)
+choose_file_button.grid(row=6, column=0, pady=10)
+
+# Create a button to upload the data to the database
+upload_button.configure(command=lambda: process_pdf_text(name_entry.get(), work_id_entry.get(), text_widget.get("1.0", tk.END)), state="disabled")
+upload_button.grid(row=7, column=0)
+
+# Set up the layout using the grid() geometry manager
+choose_file_button.grid(row=6, column=0, pady=10)
+upload_button.grid(row=7, column=0)
+
+# Start the main loopof the window
+root.mainloop()
