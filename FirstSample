@@ -1,3 +1,175 @@
+import os
+import time
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tkinter.ttk import *
+import pyodbc
+# from azure.cognitiveservices.vision.computervision import ComputerVisionClient
+# from azure.cognitiveservices.vision.computervision.models import OperationStatusCodes
+# from azure.cognitiveservices.vision.computervision.models import VisualFeatureTypes
+from azure.core.exceptions import HttpResponseError
+from msrest.authentication import CognitiveServicesCredentials
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from pdfminer.high_level import extract_text
+from azure.ai.formrecognizer import DocumentAnalysisClient
+from azure.core.credentials import AzureKeyCredential
+import PyPDF2
+import arabic_reshaper
+from bidi.algorithm import get_display
+import reportlab.pdfbase._fontdata as fontdata
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+
+font_name = 'TheSans alinma'
+font_path = 'C:/Users/stron/Downloads/TheSans_alinma.ttf'  # Replace with the actual font file path
+
+pdfmetrics.registerFont(TTFont(font_name, font_path))
+
+# Azure Cognitive Services credentials
+form_recognizer_key = "d3a754b6ddcf4bf08e16c8776d7f5e0d"
+form_recognizer_endpoint = "https://crystalform.cognitiveservices.azure.com/"
+
+# Create a Form Recognizer client
+form_recognizer_client = DocumentAnalysisClient(form_recognizer_endpoint, AzureKeyCredential(form_recognizer_key))
+
+def center_window(window):
+    window.update_idletasks()
+    width = window.winfo_width()
+    height = window.winfo_height()
+    x = (window.winfo_screenwidth() // 2) - (width // 2)
+    y = (window.winfo_screenheight() // 2) - (height // 2)
+    window.geometry(f"{width}x{height}+{x}+{y}")
+
+def open_image_ocr_window():
+    """
+    Open the Image OCR window.
+    """
+    image_ocr_window = tk.Tk()  # Create the Image OCR window
+    image_ocr_window.title("Image OCR")
+
+
+    def perform_ocr():
+        try:
+            # Ask the user to choose an image file
+            image_file = filedialog.askopenfilename(filetypes=[("Image files", ".jpg;.jpeg;*.png")])
+
+            # If an image is selected
+            if image_file:
+                # Call the Azure Form Recognizer OCR API
+                with open(image_file, "rb") as image_data:
+                    poller = form_recognizer_client.begin_analyze_document("prebuilt-layout", image_data)
+                    result = poller.result()
+
+                    # Process the OCR result
+                    text = ""
+                    for page in result.pages:
+                        for line in page.lines:
+                            text += line.content + "\n"
+
+                    extracted_text.delete("1.0", tk.END)
+                    extracted_text.insert(tk.END, text)
+
+                    # Enable the "Copy to New PDF" button
+                    copy_button.config(state=tk.NORMAL)
+
+                    # Show a notification window
+                    messagebox.showinfo("OCR Process Completed",
+                                        "Please check if there are any wrong spells and correct them.")
+
+        except Exception as e:
+            print("Error:", e)
+            messagebox.showerror("Error", str(e))
+
+    def copy_to_new_pdf():
+        try:
+            # Get the text from the Text widget
+            text = extracted_text.get("1.0", tk.END)
+
+            # Reshape and reorder the text for proper rendering of Arabic characters
+            reshaped_text = arabic_reshaper.reshape(text)
+            bidi_text = get_display(reshaped_text)
+
+            # Get the current time for generating the filename
+            timestamp = time.strftime("%Y%m%d%H%M%S")
+
+            # Generate the output PDF filename
+            filename = f"output_{timestamp}.pdf"
+            filepath = os.path.join("C:/Users/stron/Downloads", filename)
+
+            # Create a new PDF and add the text to it
+            c = canvas.Canvas(filepath, pagesize=letter)
+            c.setFont(font_name, 12)  # Set the font to support Arabic and English
+
+            # Split the text into lines and add each line separately with line breaks
+            lines = bidi_text.split("\n")
+            y = 700  # Initial y-coordinate for drawing text
+            line_height = 14  # Height of each line
+
+            for line in lines:
+                c.drawString(100, y, line)
+                y -= line_height
+
+            c.save()
+
+            # Show a notification window with the file path
+            messagebox.showinfo("Text Extracted", f"Text extracted into a new PDF in:\n{filepath}")
+
+        except Exception as e:
+            print("Error:", e)
+            messagebox.showerror("Error", str(e))
+
+    # Create a button to choose an image file
+    choose_image_button = tk.Button(image_ocr_window, text="Choose Image", command=perform_ocr)
+    choose_image_button.pack(pady=10)
+
+    # Create a Text widget to display the extracted text
+    extracted_text = tk.Text(image_ocr_window, height=30, width=80, wrap="word", font=("Calibri", 12))
+    extracted_text.pack(padx=10, pady=10)
+
+    # Create a button to copy the text to a new PDF
+    copy_button = tk.Button(image_ocr_window, text="Copy to New PDF", command=copy_to_new_pdf, state=tk.DISABLED)
+    copy_button.pack(pady=10)
+
+    # Run the tkinter event loop for the Image OCR window
+    image_ocr_window.mainloop()
+
+
+def open_pdf_reader_window():
+    """
+    Open the PDF Reader window.
+    """
+    pdf_reader_window = tk.Tk()  # Create the PDF Reader window
+    pdf_reader_window.title("PDF Reader")
+    # Create labels and entry widgets for the name and work ID number fields
+    name_label = tk.Label(pdf_reader_window, text="Name")
+    name_label.grid(row=0, column=0, sticky="w")
+    name_entry = tk.Entry(pdf_reader_window)
+    name_entry.grid(row=1, column=0, sticky="ew")
+    pdf_reader_window.title("Crystal")
+
+    work_id_label = tk.Label(pdf_reader_window, text="Work ID Number")
+    work_id_label.grid(row=2, column=0, sticky="w")
+    work_id_entry = tk.Entry(pdf_reader_window)
+    work_id_entry.grid(row=3, column=0, sticky="ew")
+
+    # Create a label to display instructions
+    instructions_label = tk.Label(pdf_reader_window, text="Please upload your PDF file")
+    instructions_label.grid(row=4, column=0, sticky="w")
+
+    # Create a Text widget to display the extracted text
+    text_widget = tk.Text(pdf_reader_window, height=20, width=50, wrap="word", font=("Calibri", 12))
+    text_widget.grid(row=5, column=0, sticky="nsew")
+
+    # Create a variable to store the name and work ID number
+    name_var = tk.StringVar()
+    work_id_var = tk.StringVar()
+
+    # Disable the Upload button initially
+    upload_button = tk.Button(pdf_reader_window, text="Upload", state="disabled")
+
+
     def process_pdf_text(name, work_id, pdf_path):
         # Open the PDF file
         with open(pdf_path, 'rb') as file:
@@ -87,3 +259,70 @@
         except pyodbc.Error as e:
             # Handle database errors
             messagebox.showerror("Database Error", str(e))
+
+    # Define a function to handle file selection
+    # Define a function to handle file selection
+    # Define a function to handle file selection
+    # Define a function to handle file selection
+    def select_file():
+        # Ask the user to choose a file
+        file_name = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
+
+        # If a file is selected
+        if file_name:
+            # Enable the last text widget
+            text_widget.config(state='normal')
+
+            # Extract text from PDF using pdfminer
+            extracted_text = extract_text(file_name)
+
+            # Display the extracted text in the Text widget
+            text_widget.delete("1.0", tk.END)
+            text_widget.insert(tk.END, extracted_text)
+
+            # Disable the last text widget after 5 seconds
+            pdf_reader_window.after(1000, lambda: text_widget.config(state='disabled'))
+
+            # Enable the Submit button
+            submit_button.configure(state="normal")
+
+            # Disable the Choose File button
+            choose_file_button.configure(state="disabled")
+
+    # Create a button to trigger the file selection function
+    choose_file_button = tk.Button(pdf_reader_window, text="Choose File", command=select_file)
+    choose_file_button.grid(row=6, column=0, pady=10)
+
+    # Create a button to submit the data to the database
+    submit_button = tk.Button(pdf_reader_window, text="Submit", state="disabled")
+    submit_button.configure(
+        command=lambda: process_pdf_text(name_entry.get(), work_id_entry.get(), text_widget.get("1.0", tk.END)))
+    submit_button.grid(row=7, column=0)
+
+    # Disable the last text widget initially
+    text_widget.config(state='disabled')
+
+    # Set up the layout using the grid() geometry manager
+    choose_file_button.grid(row=6, column=0, pady=10)
+    submit_button.grid(row=7, column=0)
+
+    # Run the tkinter event loop for the PDF Reader window
+    pdf_reader_window.mainloop()
+
+
+# Create the main window
+window = tk.Tk()
+window.title("Crystal")
+window.geometry("300x200")
+center_window(window)
+
+# Create a button to open the Image OCR window
+image_ocr_button = tk.Button(window, text="Image OCR", command=open_image_ocr_window)
+image_ocr_button.pack(pady=20)
+
+# Create a button to open the PDF Reader window
+pdf_reader_button = tk.Button(window, text="PDF Reader", command=open_pdf_reader_window)
+pdf_reader_button.pack()
+
+# Run the tkinter event loop for the main window
+window.mainloop()
